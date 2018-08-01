@@ -1,0 +1,296 @@
+library(lasso2)
+library(leaps)
+data(Prostate)
+
+# Centre and scale data
+for (i in 1:9) {
+Prostate[,i] = (Prostate[, i] - mean(Prostate[, i])) / sd(Prostate[,i ])
+}
+
+# Subset selection using information criteria
+leaps=regsubsets(
+lpsa~ lcavol + lweight + age + lbph + svi + lcp + gleason + pgg45,data=Prostate, intercept=FALSE,
+nbest=10)
+
+# Plot graph of models ranked by BIC
+pdf(file="prostate_bic.pdf")
+ plot(leaps, scale="bic") 
+dev.off()
+
+# Plot graph of models ranked by AIC
+pdf(file="prostate_Cp.pdf")
+plot(leaps, scale="Cp")
+dev.off()
+
+library(ridge)
+library(MASS)
+
+# Estimate the regression coefficients using ridge regression
+fit=linearRidge(lpsa ~ . , Prostate)
+
+# Create a range of values for log(lambda) where lambda is 
+# the ridge parameter
+loglambda = seq(from=-1, to=7, length=200)
+
+fit2 = matrix(0, nrow=200, ncol=8)
+df = numeric(200)
+
+# Calculate degrees of freedom for the ridge estimate and 
+# the estimated regression coefficients
+eigs = eigen(t(as.matrix(Prostate[,1:8])) %*% as.matrix(Prostate[,1:8]))$values
+for (i in 1:200) {
+fit=lm.ridge(lpsa ~ . -1 , Prostate, lambda= exp(loglambda[i]))
+fit2[i, ]=fit$coef
+df[i] = sum(eigs / (eigs + exp(loglambda[i])))
+}
+
+# Plot estimates as a function of log(lambda)
+pdf(file="prostate_ridge_1.pdf")
+plot(loglambda, fit2[, 1], type="l", ylim = c(-0.2, 0.6), ylab="Estimates", xlab="log(lambda)")
+for (i in 2:8) {
+lines(loglambda, fit2[, i])
+}
+for (i in 1:8) {
+if ( i == 6 ) {
+text(loglambda[1], fit2[1,i]-0.015, names(Prostate)[i], pos=4)
+}
+else {
+text(loglambda[1], fit2[1,i]+0.015, names(Prostate)[i], pos=4)
+}
+}
+dev.off()
+
+# Plot sum of squared regression coefficient estimates as
+# function of log(lambda)
+pdf(file="prostate_ridge_2.pdf")
+plot(loglambda, rowSums(fit2^2), type="l", ylim = c(0, 0.6), ylab="Sum of Squared Estimates", xlab="log(lambda)")
+dev.off()
+
+# Plot estimates as a function of degrees of freedom
+pdf(file="prostate_ridge_3.pdf")
+plot(df, fit2[, 1], type="l", ylim = c(-0.2, 0.6), ylab="Estimates", xlab="df")
+for (i in 2:8) {
+lines(df, fit2[, i])
+}
+for (i in 1:8) {
+if ( i == 6 ) {
+text(df[1], fit2[1,i]-0.015, names(Prostate)[i], pos=2)
+}
+else {
+text(df[1], fit2[1,i]+0.015, names(Prostate)[i], pos=2)
+}
+}
+dev.off()
+
+
+# Use cross-valdation to choose the value of the ridge 
+# parameter
+
+library(cvTools)
+
+# Choose a range of values for log(lambda) where lambda is
+# the ridge parameter
+loglambda = seq(from=-1, to=7, length=200)
+
+# Construct the folds of the 10-fold cross-validation
+z = cvFolds(97, K=10, R=1, type="random")
+yhat = matrix(nrow = 97, ncol = length(loglambda))
+
+# Calculate predictions for each testing data set for
+# each value of the ridge parameter
+for (i in 1:length(loglambda)) {
+	for (j in 1:10) { 
+		Prostate_test = Prostate[z$which==j, ]
+		Prostate_train = Prostate[z$which != j, ]
+		fit=lm.ridge(lpsa ~ . -1 , Prostate_train, lambda= exp(loglambda[i]))
+		yhat[z$which==j, i] <- as.matrix(Prostate_test[, 1:8]) %*% as.matrix(fit$coef, nrow=8, ncol=1)
+	}
+}
+
+# Mean squared error for different values of log(lambda)
+MSE = numeric(length(loglambda))
+for (i in 1:length(loglambda)) {
+	MSE[i] <- mean((yhat[,i] - Prostate$lpsa)^2)
+}
+
+# Graph of mean squared error as a function of degrees of
+# freedom
+pdf(file="prostate_ridge_CV_MSE.pdf")
+plot(df, MSE, type="l")
+dev.off()
+
+# Calculate the regression estimates for different values of 
+# the ridge parameter
+fit2 = matrix(0, nrow=200, ncol=8)
+for (i in 1:200) {
+fit=lm.ridge(lpsa ~ . -1 , Prostate, lambda= exp(loglambda[i]))
+fit2[i, ]=fit$coef
+}
+z1 = min(fit2)
+z2 = max(fit2)
+
+# Plot the ridge regression estimates as a function of the 
+# degrees of freedom with the value of lambda chosen using
+# cross-validation indicated
+pdf(file="prostate_ridge_CV_beta.pdf")
+plot(c(df[1], df[200]), c(z1, z2), type="n", ylab="Estimates", xlab="df")
+for (i in 1:8)  {
+lines(df, fit2[,i])
+}
+y = which.min(MSE)
+for (i in 1:8) {
+if ( i == 6 ) {
+text(df[1], fit2[1,i]-0.015, names(Prostate)[i], pos=2)
+}
+else {
+text(df[1], fit2[1,i]+0.015, names(Prostate)[i], pos=2)
+}
+}
+lines(c(df[y], df[y]), c(z1, z2), lty="dashed")
+dev.off()
+
+# Fit ridge regression with the value of the ridge parameter
+# chosen using cross-validation
+fit=lm.ridge(lpsa ~ . -1 , Prostate, lambda= exp(loglambda[y]))
+
+
+# Calculate the lasso estimate of the regression coefficients
+# and plot the regularization path
+library(glmnet)
+
+pdf(file="prostate_lasso_beta.pdf")
+data <- as.matrix(Prostate[,1:8])
+resp <- as.matrix(Prostate[,9])
+fit = glmnet(data, resp)
+plot(fit, xlim=c(0, 1.75))
+endstar = dim(fit$beta)[2]
+x = sum(abs(fit$beta[, endstar]))
+for (i in 1:8) {
+if ( i == 3 ) {
+text(x, fit$beta[i,endstar]-0.015, names(Prostate)[i], pos=4)
+}
+else {
+text(x, fit$beta[i,endstar]+0.015, names(Prostate)[i], pos=4)
+}
+}
+dev.off()
+
+# Results for the lasso using 10-fold cross-validation
+pdf(file="prostate_lasso_MSE.pdf")
+data <- as.matrix(Prostate[,1:8])
+resp <- as.matrix(Prostate[,9])
+fit<-cv.glmnet(data, resp, nfolds=10)
+plot(fit)
+dev.off()
+
+# The estimated regression coefficients for the value of 
+# lambda chosen using 10-fold cross-validation
+coef(fit, s="lambda.min")
+
+# Find the LAR estimate of the regression coefficients and
+# plot the regularization path
+library(lars)
+pdf(file="H:\\Modules\\MA781MA889\\Transparency\\new_slides\\prostate_LARS.pdf")
+data <- as.matrix(Prostate[,1:8])
+resp <- as.matrix(Prostate[,9])
+fit<-lars(data, resp, type="lar")
+plot(fit)
+dev.off()
+
+# Find the value of alpha and lambda in the elastic net using
+# 10-fold cross-validation
+library(cvTools)
+# Construct the folds in the 10-fold cross-validation
+z = cvFolds(97, K=10, R=1, type="random")
+
+# Construct a sequence of possible values for alpha
+alpha = seq(from = 0, to = 1, length = 300)
+MSE = numeric(length(alpha))
+
+# Calculate the MSE using the value of lambda which minimizes
+# the MSE for fixed values of alpha
+for (i in 1:length(alpha)) {
+fit<-cv.glmnet(data, resp, alpha=alpha[i], foldid=z$which)
+MSE[i] = fit$cvm[which(fit$lambda==fit$lambda.min)]
+}
+
+# Plot the MSE as a function of alpha
+pdf(prostate_elastic_net_MSE.pdf")
+plot(alpha, MSE, type="l")
+dev.off
+
+# Find the value of alpha which minimizes the MSE
+alphastar = alpha[which.min(MSE)]
+
+# Find the value of lambda which minimizes the MSE with 
+# alphastar
+fit<-cv.glmnet(data, resp, alpha=alphastar, foldid=z$which)
+
+# Print the value of the regression coefficients with the  
+# values of lambda and alpha that minimize MSE
+coef(fit, s="lambda.min")
+
+# Print the value of lambda which minimizes MSE for alphastar
+lambdastar = fit$lambda.min
+
+# Plot the regularization path for alphastar
+fit = glmnet(data, resp, alpha=alphastar)
+pdf(file="prostate_elastic_net.pdf")
+endstar = dim(fit$beta)[2]
+x = sum(abs(fit$beta[, endstar]))
+plot(fit, xlim=c(0, 1.75))
+for (i in 1:8) {
+if ( i == 6 ) {
+text(x, fit$beta[i,endstar]-0.015, names(Prostate)[i], pos=4)
+}
+else {
+text(x, fit$beta[i,endstar]+0.015, names(Prostate)[i], pos=4)
+}
+}
+dev.off()
+
+
+# Find the value of gamma and lambda in the adaptive lasso 
+# using 10-fold cross-validation
+library(cvTools)
+# Construct the folds in the 10-fold cross-validation
+z = cvFolds(97, K=10, R=1, type="random")
+
+# Construct a sequence of possible values for gamma
+gamma = seq(from = 0, to = 6, length = 100)
+MSE = numeric(length(gamma))
+lambda = numeric(length(gamma))
+
+# Calculate least squares estimate
+betaLS <- coef(lm(lpsa ~ . -1 , Prostate))
+
+# Calculate the minimum (over the lasso parameter) MSE 
+# for different values of gamma 
+for (i in 1:length(gamma)) {
+w = 1 / abs(betaLS)^gamma[i]
+invW = diag(1/w)
+data <- as.matrix(Prostate[,1:8]) %*% invW
+resp <- as.matrix(Prostate[,9])
+fit<-cv.glmnet(data, resp, foldid=z$which, standardize = FALSE)
+MSE[i] = fit$cvm[which(fit$lambda==fit$lambda.min)]
+lambda[i] = fit$lambda.min
+}
+
+# Plot MSE as a function of gamma
+pdf(file="prostate_adap_lasso_MSE.pdf")
+plot(gamma, MSE)
+dev.off()
+
+# Find the value of gamma which gives the lowest MSE
+gammastar = gamma[which.min(MSE)]
+w = 1 / abs(betaLS)^gammastar
+invW = diag(1/w)
+data <- as.matrix(Prostate[,1:8]) %*% invW
+resp <- as.matrix(Prostate[,9])
+fit<-cv.glmnet(data, resp, standardize=FALSE, foldid=z$which)
+coef(fit, s="lambda.min")
+lambdastar = fit$lambda.min
+
+# Calculate the corresponding lasso estimate
+c1 = coef(fit, s="lambda.min") 
+c1[2:length(c1)]/w

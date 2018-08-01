@@ -1,0 +1,21 @@
+g = anova(lm(Income ~ region, sal))    #sal is the data
+
+n = 1000
+permf = numeric(n)
+
+#perform a permutations test
+
+for(i in 1:n){
+  perm = sample(sal$Income)
+  permf[i] = anova(lm(perm ~ region))[1,4]
+}
+
+plot(permf, xlab = "iterations", ylab = "F-Statistic")
+
+sum(permf>2.79)/length(permf)
+
+h = rf(1000, 3, 36)
+
+plot(ecdf(permf), main = "ECDF of permf & cdf of F-distribution (df = 3, 36)")
+lines(ecdf(h), type = "l", col = "red")
+

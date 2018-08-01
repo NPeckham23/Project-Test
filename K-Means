@@ -1,0 +1,43 @@
+#-----------1980 clustering------------------------
+
+k1 = kmeans(comp1, 6, nstart=25, iter.max=1000)
+library(RColorBrewer)
+library(scales)
+palette(alpha(brewer.pal(9,'Set1'), 0.5))
+plot(comp1, col=k1$clust, pch=16)
+
+# Cluster sizes
+sort(table(k1$clust))
+clust = names(sort(table(k1$clust)))
+
+# First cluster
+c1 = row.names(data1[k1$clust==clust[1],])
+# Second Cluster
+c2 = row.names(data1[k1$clust==clust[2],])
+# Third Cluster
+c3 = row.names(data1[k1$clust==clust[3],])
+# Fourth Cluster
+c4 = row.names(data1[k1$clust==clust[4],])
+# Fifth Cluster
+c5 = row.names(data1[k1$clust==clust[5],])
+# Sixth Cluster
+c6 = row.names(data1[k1$clust==clust[6],])
+
+
+clusters = c(c1, c2, c3, c4, c5, c6)
+
+#--------Plot Countries on a world map----------------------------------
+#install.packages('rworldmap')
+library(rworldmap)
+
+#-----trying to plot cluster level data:--------------------------------
+
+par(mai=c(0,0,0.2,0),xaxs="i",yaxs="i")
+
+df = data.frame(x = c(c1, c2, c3, c4, c5, c6), n = c(rep(3, 6), rep(5, 15), rep(4, 27), rep(1,35), rep(2, 54), rep(6, 63)))
+
+map = joinCountryData2Map(df, joinCode = "NAME", nameJoinColumn = "x")
+
+mapCountryData(map, nameColumnToPlot="n",mapRegion = 'world', catMethod = "categorical", missingCountryCol = gray(.8), colourPalette = c("blue", "red", "green", "orange", "purple", "dark green"), addLegend = T, mapTitle = 'K-Means Clusters')
+
+
